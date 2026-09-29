@@ -1,0 +1,62 @@
+/** Splits a lockfile key of the form "name@rest" (a yarn descriptor "name@range", or a pnpm
+ * snapshot key "name@version(...)") into its name and everything after the separator. Scoped
+ * package names ("@scope/name") contain their own leading "@", so the separator is the *second*
+ * "@" for those, not the first. */
+export function splitAtNameSeparator(key) {
+    const separator = key.startsWith("@")
+        ? key.indexOf("@", 1)
+        : key.indexOf("@");
+    return { name: key.slice(0, separator), rest: key.slice(separator + 1) };
+}
+/** BFS from the root's direct dependencies outward. BFS (not DFS) guarantees the first time we
+ * reach a given install location is via its shortest path — so depth/path always reflect the
+ * shallowest route, which is the one worth reporting.
+ *
+ * `visitedKeys` (not visited names) is what prevents infinite loops on circular dependencies:
+ * each physical install location is only ever expanded once, regardless of how many times it's
+ * required. The output is keyed by name@version instead, since the same package can be
+ * installed at multiple versions/locations in one tree and each is a distinct finding. */
+export function buildDependencyGraph(adapter) {
+    const visitedKeys = new Set();
+    const result = new Map();
+    const queue = [];
+    for (const { name, range } of adapter.rootDependencies()) {
+        const key = adapter.resolve("", name, range);
+        if (!key || visitedKeys.has(key)) {
+            continue;
+        }
+        visitedKeys.add(key);
+        queue.push({ key, depth: 1, path: [name] });
+    }
+    let cursor = 0;
+    while (cursor < queue.length) {
+        const entry = queue[cursor++];
+        const node = adapter.getNode(entry.key);
+        if (!node) {
+            continue;
+        }
+        const dependencyType = entry.depth === 1 ? "direct" : "transitive";
+        const id = `${node.name}@${node.version}`;
+        if (!result.has(id)) {
+            result.set(id, {
+                dependencyType,
+                depth: dependencyType === "transitive" ? entry.depth : undefined,
+                path: entry.path,
+                license: node.license,
+            });
+        }
+        for (const dep of node.dependencies) {
+            const childKey = adapter.resolve(entry.key, dep.name, dep.range);
+            if (!childKey || visitedKeys.has(childKey)) {
+                continue;
+            }
+            visitedKeys.add(childKey);
+            queue.push({
+                key: childKey,
+                depth: entry.depth + 1,
+                path: [...entry.path, dep.name],
+            });
+        }
+    }
+    return result;
+}
