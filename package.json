@@ -7,7 +7,7 @@
   "author": "Amitt K Sharma",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/amittkSharma/malicious-package-scanner"
+    "url": "git+https://github.com/amittkSharma/malicious-package-scanner.git"
   },
   "homepage": "https://github.com/amittkSharma/malicious-package-scanner",
   "bugs": {
